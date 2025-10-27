@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { Button, Code, Input, Text } from "@stellar/design-system";
 import { useWallet } from "../hooks/useWallet";
-import game from "../contracts/guess_the_number";
+import {
+  Client as GuessTheNumberClient,
+  networks,
+} from "../contracts/guess_the_number";
 import { Box } from "../components/layout/Box";
 
 export const GuessTheNumber = () => {
   const [guessedIt, setGuessedIt] = useState<boolean>();
   const [theGuess, setTheGuess] = useState<number>();
+  const [isLoading, setIsLoading] = useState(false);
   const { address } = useWallet();
 
   if (!address) {
@@ -19,14 +23,36 @@ export const GuessTheNumber = () => {
 
   const submitGuess = async () => {
     if (!theGuess || !address) return;
-    const { result } = await game.guess({
-      a_number: BigInt(theGuess),
-      guesser: address,
-    });
-    if (result.isErr()) {
-      console.error(result.unwrapErr());
-    } else {
-      setGuessedIt(result.unwrap());
+
+    setIsLoading(true);
+    try {
+      // Create client instance
+      const client = new GuessTheNumberClient({
+        contractId: networks.standalone.contractId,
+        networkPassphrase: networks.standalone.networkPassphrase,
+        rpcUrl: "http://localhost:8000/rpc",
+      });
+
+      // Call the guess function
+      const result = await client.guess({
+        a_number: BigInt(theGuess),
+        guesser: address,
+      });
+
+      // Sign and send the transaction
+      const signedResult = await result.signAndSend();
+
+      if (signedResult.result.isErr()) {
+        console.error("Transaction failed:", signedResult.result.unwrapErr());
+        setGuessedIt(false);
+      } else {
+        setGuessedIt(signedResult.result.unwrap());
+      }
+    } catch (error) {
+      console.error("Error calling contract:", error);
+      setGuessedIt(false);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -61,12 +87,12 @@ export const GuessTheNumber = () => {
           />
           <Button
             type="submit"
-            disabled={!theGuess}
+            disabled={!theGuess || isLoading}
             style={{ marginTop: 8 }}
             variant="primary"
             size="md"
           >
-            Submit Guess
+            {isLoading ? "Guessing..." : "Submit Guess"}
           </Button>
         </Box>
       )}
